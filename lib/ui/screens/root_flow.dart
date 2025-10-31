@@ -6,6 +6,8 @@ import 'package:g8night/core/preferences/app_preferences.dart';
 import 'package:g8night/ui/screens/login_type_screen.dart';
 import 'package:g8night/ui/widgets/dots_indicator.dart';
 import 'package:g8night/ui/widgets/gradient_background.dart';
+import 'package:g8night/core/localization/l.dart';
+import 'package:g8night/core/locale/locale_controller.dart';
 
 class RootFlow extends StatefulWidget {
   const RootFlow({super.key});
@@ -14,7 +16,7 @@ class RootFlow extends StatefulWidget {
   State<RootFlow> createState() => _RootFlowState();
 }
 
-enum FlowPage { splash, onboarding, loginType, login, home }
+enum FlowPage { splash, language, onboarding, loginType, login, home }
 
 class _RootFlowState extends State<RootFlow> {
   FlowPage _page = FlowPage.splash;
@@ -30,9 +32,14 @@ class _RootFlowState extends State<RootFlow> {
   Future<void> _boot() async {
     await AppPreferences.ensureInitialized();
     final bool isOnboarded = AppPreferences.getBool(PreferenceKeys.isOnboarded, defaultValue: false);
+    final String savedLocale = AppPreferences.getString(LocalePreferenceKeys.localeCode, defaultValue: '');
     unawaited(Future<void>.delayed(const Duration(milliseconds: 900)).then((_) {
       if (!mounted) return;
-      _setPage(isOnboarded ? FlowPage.loginType : FlowPage.onboarding);
+      if (savedLocale.isEmpty) {
+        _setPage(FlowPage.language);
+      } else {
+        _setPage(isOnboarded ? FlowPage.loginType : FlowPage.onboarding);
+      }
     }));
   }
 
@@ -63,6 +70,8 @@ class _RootFlowState extends State<RootFlow> {
     switch (_page) {
       case FlowPage.home:
         return true; // allow app to close
+      case FlowPage.language:
+        return true;
       case FlowPage.login:
         _toLoginType();
         return false;
@@ -111,6 +120,14 @@ class _RootFlowState extends State<RootFlow> {
     switch (_page) {
       case FlowPage.splash:
         return const _SplashFragment(key: ValueKey('splash'));
+      case FlowPage.language:
+        return _LanguageFragment(
+          key: const ValueKey('language'),
+          onContinue: () {
+            final bool isOnboarded = AppPreferences.getBool(PreferenceKeys.isOnboarded, defaultValue: false);
+            _setPage(isOnboarded ? FlowPage.loginType : FlowPage.onboarding);
+          },
+        );
       case FlowPage.onboarding:
         return _OnboardingFragment(key: const ValueKey('onboarding'), onFinish: () async {
           await AppPreferences.setBool(PreferenceKeys.isOnboarded, true);
@@ -132,13 +149,87 @@ class _SplashFragment extends StatelessWidget {
   const _SplashFragment({super.key});
   @override
   Widget build(BuildContext context) {
+    final String title = L.t('splashTitle');
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const <Widget>[
-          Icon(Icons.local_bar, color: Colors.white, size: 80),
-          SizedBox(height: 16),
-          Text('Pub Bar', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600)),
+        children: <Widget>[
+          const Icon(Icons.local_bar, color: Colors.white, size: 80),
+          const SizedBox(height: 16),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+class _LanguageFragment extends StatefulWidget {
+  final VoidCallback onContinue;
+  const _LanguageFragment({super.key, required this.onContinue});
+
+  @override
+  State<_LanguageFragment> createState() => _LanguageFragmentState();
+}
+
+class _LanguageFragmentState extends State<_LanguageFragment> {
+  Locale? _selected;
+
+  List<_LangOption> _options(BuildContext context) {
+    return <_LangOption>[
+      _LangOption(locale: const Locale('en', 'US'), label: L.t('englishUS')),
+      _LangOption(locale: const Locale('en', 'GB'), label: L.t('englishUK')),
+      _LangOption(locale: const Locale('de'), label: L.t('german')),
+      _LangOption(locale: const Locale('hi'), label: L.t('hindi')),
+      _LangOption(locale: const Locale('ru'), label: L.t('russian')),
+      _LangOption(locale: const Locale('ar'), label: L.t('arabic')),
+    ];
+  }
+
+  Future<void> _apply() async {
+    final Locale? choice = _selected;
+    if (choice == null) return;
+    await LocaleController.instance.setLocale(choice);
+    widget.onContinue();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String langTitle = L.t('languageSelectTitle');
+    final List<_LangOption> items = _options(context);
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0, bottom: 16.0),
+            child: Text(langTitle, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
+          ),
+          SizedBox(
+            height: 72,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemBuilder: (BuildContext context, int index) {
+                final _LangOption opt = items[index];
+                final bool selected = _selected == opt.locale;
+                return ChoiceChip(
+                  selected: selected,
+                  label: Text(opt.label),
+                  onSelected: (_) => setState(() => _selected = opt.locale),
+                );
+              },
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemCount: items.length,
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _apply,
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16.0)),
+              child: Text(L.t('continueBtn')),
+            ),
+          ),
         ],
       ),
     );
@@ -156,11 +247,7 @@ class _OnboardingFragment extends StatefulWidget {
 class _OnboardingFragmentState extends State<_OnboardingFragment> {
   final PageController _pageController = PageController();
   int _index = 0;
-  final List<_SlideData> _slides = const <_SlideData>[
-    _SlideData(title: 'Discover Pubs', subtitle: 'Find the best pubs nearby'),
-    _SlideData(title: 'Exclusive Offers', subtitle: 'Unlock member-only deals'),
-    _SlideData(title: 'Join the Community', subtitle: 'Rate and share experiences'),
-  ];
+  static const int _totalSlides = 3;
 
   @override
   void dispose() {
@@ -169,7 +256,7 @@ class _OnboardingFragmentState extends State<_OnboardingFragment> {
   }
 
   Future<void> _next() async {
-    if (_index < _slides.length - 1) {
+    if (_index < _totalSlides - 1) {
       _pageController.nextPage(duration: const Duration(milliseconds: 280), curve: Curves.easeOut);
     } else {
       await widget.onFinish();
@@ -178,24 +265,30 @@ class _OnboardingFragmentState extends State<_OnboardingFragment> {
 
   @override
   Widget build(BuildContext context) {
+    final String heading = L.t('onboardingWelcome');
+    final List<_SlideData> slides = <_SlideData>[
+      _SlideData(title: L.t('slide1Title'), subtitle: L.t('slide1Subtitle')),
+      _SlideData(title: L.t('slide2Title'), subtitle: L.t('slide2Subtitle')),
+      _SlideData(title: L.t('slide3Title'), subtitle: L.t('slide3Subtitle')),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 24.0),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24.0),
           child: Text(
-            'Welcome to Pub Bar',
+            heading,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w600),
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w600),
           ),
         ),
         Expanded(
           child: PageView.builder(
             controller: _pageController,
             onPageChanged: (int i) => setState(() => _index = i),
-            itemCount: _slides.length,
+            itemCount: slides.length,
             itemBuilder: (BuildContext context, int i) {
-              final _SlideData slide = _slides[i];
+              final _SlideData slide = slides[i];
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0),
                 child: Column(
@@ -217,11 +310,11 @@ class _OnboardingFragmentState extends State<_OnboardingFragment> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
-              DotsIndicator(dotsCount: _slides.length, position: _index),
+              DotsIndicator(dotsCount: slides.length, position: _index),
               ElevatedButton(
                 onPressed: _next,
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.deepPurple),
-                child: Text(_index == _slides.length - 1 ? 'Finish' : 'Next'),
+                child: Text(_index == slides.length - 1 ? L.t('finish') : L.t('next')),
               ),
             ],
           ),
@@ -237,6 +330,8 @@ class _LoginTypeFragment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String userLabel = L.t('userLoginRegister');
+    final String adminLabel = L.t('adminLoginRegister');
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -247,7 +342,7 @@ class _LoginTypeFragment extends StatelessWidget {
             child: ElevatedButton(
               onPressed: () => onSelect(LoginType.user),
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16.0)),
-              child: const Text('User Login / Register'),
+              child: Text(userLabel),
             ),
           ),
           const SizedBox(height: 16),
@@ -256,7 +351,7 @@ class _LoginTypeFragment extends StatelessWidget {
             child: ElevatedButton(
               onPressed: () => onSelect(LoginType.admin),
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16.0)),
-              child: const Text('Pub Admin Login / Register'),
+              child: Text(adminLabel),
             ),
           ),
         ],
@@ -288,22 +383,23 @@ class _LoginFragmentState extends State<_LoginFragment> {
   }
 
   void _onCreateAccountTapped() {
-    Fluttertoast.showToast(msg: 'Create New Account tapped');
+    Fluttertoast.showToast(msg: L.t('toastCreateAccount'));
   }
 
   void _onForgotPasswordTapped() {
-    Fluttertoast.showToast(msg: 'Forget Password tapped');
+    Fluttertoast.showToast(msg: L.t('toastForgotPassword'));
   }
 
   void _onLoginTapped() {
     if (_formKey.currentState?.validate() ?? false) {
-      Fluttertoast.showToast(msg: 'Logging in as ${widget.type.name}');
+      Fluttertoast.showToast(msg: L.t('toastLoggingIn'));
       widget.onLoggedIn();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final String title = widget.type == LoginType.user ? L.t('userLoginTitle') : L.t('adminLoginTitle');
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Form(
@@ -312,13 +408,13 @@ class _LoginFragmentState extends State<_LoginFragment> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             const SizedBox(height: 24),
-            Text(widget.type == LoginType.user ? 'User Login' : 'Pub Admin Login',
+            Text(title,
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email', filled: true),
+              decoration: InputDecoration(labelText: L.t('email'), filled: true),
               validator: (String? value) {
                 if (value == null || value.isEmpty) return 'Enter email';
                 if (!value.contains('@')) return 'Enter valid email';
@@ -330,7 +426,7 @@ class _LoginFragmentState extends State<_LoginFragment> {
               controller: _passwordController,
               obscureText: _obscure,
               decoration: InputDecoration(
-                labelText: 'Password',
+                labelText: L.t('password'),
                 filled: true,
                 suffixIcon: IconButton(
                   icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
@@ -349,7 +445,7 @@ class _LoginFragmentState extends State<_LoginFragment> {
               child: ElevatedButton(
                 onPressed: _onLoginTapped,
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16.0)),
-                child: const Text('Login'),
+                child: Text(L.t('login')),
               ),
             ),
             const SizedBox(height: 12),
@@ -358,13 +454,13 @@ class _LoginFragmentState extends State<_LoginFragment> {
               children: <Widget>[
                 GestureDetector(
                   onTap: _onCreateAccountTapped,
-                  child: const Text('Create New Account',
-                      style: TextStyle(decoration: TextDecoration.underline, color: Colors.white)),
+                  child: Text(L.t('createAccount'),
+                      style: const TextStyle(decoration: TextDecoration.underline, color: Colors.white)),
                 ),
                 GestureDetector(
                   onTap: _onForgotPasswordTapped,
-                  child: const Text('Forget Password',
-                      style: TextStyle(decoration: TextDecoration.underline, color: Colors.white)),
+                  child: Text(L.t('forgotPassword'),
+                      style: const TextStyle(decoration: TextDecoration.underline, color: Colors.white)),
                 ),
               ],
             ),
@@ -379,22 +475,24 @@ class _HomeFragment extends StatelessWidget {
   const _HomeFragment({super.key});
   @override
   Widget build(BuildContext context) {
+    final String homeTitle = L.t('homeTitle');
+    final String welcome = L.t('homeWelcome');
     return Column(
       children: <Widget>[
         AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: const Text('Home'),
+          title: Text(homeTitle),
           centerTitle: true,
         ),
         Expanded(
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const <Widget>[
-                Icon(Icons.home, color: Colors.white, size: 72),
-                SizedBox(height: 12),
-                Text('Welcome to Pub Bar', style: TextStyle(color: Colors.white, fontSize: 20)),
+              children: <Widget>[
+                const Icon(Icons.home, color: Colors.white, size: 72),
+                const SizedBox(height: 12),
+                Text(welcome, style: const TextStyle(color: Colors.white, fontSize: 20)),
               ],
             ),
           ),
@@ -408,6 +506,12 @@ class _SlideData {
   final String title;
   final String subtitle;
   const _SlideData({required this.title, required this.subtitle});
+}
+
+class _LangOption {
+  final Locale locale;
+  final String label;
+  const _LangOption({required this.locale, required this.label});
 }
 
 
